@@ -107,4 +107,7 @@ workflows:
             - pre-processing
           filters:
             branches:
-              only: /.*/
+              only:   
+                - test
+                - dev
+                - master

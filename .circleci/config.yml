@@ -7,6 +7,19 @@ jobs:
 
     steps:
       - checkout
+
+      - run:
+          name: Checkout specific branch
+          command: |
+            if [ "$CIRCLE_BRANCH" != "test" ]; then
+              git checkout test 
+            fi
+            if [ "$CIRCLE_BRANCH" != "dev" ]; then
+              git checkout test
+            fi
+            if [ "$CIRCLE_BRANCH" != "master" ]; then
+              git checkout test 
+            fi
       - run:
           name: Weelcome CI Weedit
           command: "echo Start CI Weedit..!"

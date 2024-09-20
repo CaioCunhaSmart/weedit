@@ -1,31 +1,110 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/configuration-reference
 version: 2.1
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/jobs-steps/#jobs-overview & https://circleci.com/docs/configuration-reference/#jobs
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Docker Hub or use one of our convenience images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/executor-intro/ & https://circleci.com/docs/configuration-reference/#executor-job
+  pre-processing:
     docker:
-      # Specify the version you desire here
-      # See: https://circleci.com/developer/images/image/cimg/base
       - image: cimg/base:current
 
-    # Add steps to the job
-    # See: https://circleci.com/docs/jobs-steps/#steps-overview & https://circleci.com/docs/configuration-reference/#steps
     steps:
-      # Checkout the code as the first step.
       - checkout
       - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+          name: Weelcome CI Weedit
+          command: "echo Start CI Weedit..!"
+      
+      - run:
+          name: Install Dependencies
+          command: |
+              sudo apt-get update
+              sudo apt-get install -y python3-pip
+              pip3 install pre-commit
+              pip3 install boto3
+              pip3 install "titiler.application==0.18.5" "mangum>=0.10.0" "numexpr==2.10.0"
 
-# Orchestrate jobs using workflows
-# See: https://circleci.com/docs/workflows/ & https://circleci.com/docs/configuration-reference/#workflows
+      - run:
+          name: Generate ChangeLog
+          command:
+              python3 generate_changelog.py
+
+      - run:
+          name: Linter
+          command: |
+              pre-commit run --all-files --show-diff-on-failure
+
+      - run:
+          name: Commit and Push Changelog
+          command: |
+            git config --global user.email "caio.cunha@smart.agr.br"
+            git config --global user.name "CaioCunhaSmart"
+            git checkout test
+            git pull origin test
+            git add CHANGELOG.md
+            git commit -m "Update CHANGELOG [skip ci]"
+            git push origin test
+
+  deploy:
+    docker:
+      - image: cimg/node:current
+
+    steps:
+      - checkout
+      - setup_remote_docker: 
+          version: edge
+      - run:
+          name: Verify if is to make deploy
+          command: |
+            DEPLOY=false
+            echo "" > stack_to_deploy.txt
+            echo Start verification if is to do deploy.....
+            if git diff --name-only HEAD HEAD~1 | grep -q -e "services/src/routes" -e "services/src/utils" -e "services/src/libs" -e "services/src/database"; then
+              echo "Changes detected in services/src/routes/. Proceeding with deployment."
+              echo "WeeditApiStacktest" > stack_to_deploy.txt
+              DEPLOY=true
+            fi
+            if git diff --name-only HEAD HEAD~1 | grep -q -e "services/src/lambdas/create_qfield_project.py" -e "services/src/utils" -e "services/src/libs" -e "services/src/database"; then
+              echo "Changes detected in services/src/lambdas/create_qfield_project.py. Proceeding with deployment."
+              echo "WeeditCondaStacktest" > stack_to_deploy.txt
+              DEPLOY=true
+            fi
+            if git diff --name-only HEAD HEAD~1 | grep -q -e "services/src/lambdas" -e "services/src/utils" -e "services/src/libs" -e "services/src/database"; then
+              echo "Changes detected in services/src/lambdas/. Proceeding with deployment."
+              echo "WeeditAppStacktest" > stack_to_deploy.txt
+              DEPLOY=true
+            fi
+            if [ "$DEPLOY" = false ]; then
+              echo "No relevant changes detected. Skipping deployment."
+              circleci step halt
+            fi
+      - run:
+          name: Install Dependencies
+          command: |
+              sudo apt-get update
+              sudo apt-get install -y python3-pip
+              sudo apt-get update
+              sudo npm install -g aws-cdk
+              sudo pip3 install aws-cdk-lib
+              sudo pip3 install boto3
+      - run:
+          name: Deploy
+          command: |
+            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            export AWS_REGION=$AWS_REGION
+            export ENVIRONMENT_DEPLOY=$ENVIRONMENT_DEPLOY
+            STACK_TO_DEPLOY=$(cat stack_to_deploy.txt)
+            if [ -n "$STACK_TO_DEPLOY" ]; then
+              cdk deploy $STACK_TO_DEPLOY
+            else
+              echo "No stack to deploy."
+            fi
+
 workflows:
-  say-hello-workflow: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  workflow:
     jobs:
-      - say-hello
+      - pre-processing
+      - deploy:
+          name: deploy
+          requires:
+            - pre-processing
+          filters:
+            branches:
+              only: /.*/
